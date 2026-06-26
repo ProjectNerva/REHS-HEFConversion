@@ -1,0 +1,10 @@
+image_outputs/
+shared_data/
+.git/
+
+*.md
+.gitignore
+.env
+*.py
+*.onnx
+*.pt
