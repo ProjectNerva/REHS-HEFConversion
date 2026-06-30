@@ -223,5 +223,7 @@ __marimo__/
 *.hef
 *.whl
 
-shared_data/
+shared_data/*
+!shared_data/*.py
 image_outputs/
+COCO/

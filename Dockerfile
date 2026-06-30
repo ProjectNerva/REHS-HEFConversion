@@ -1,10 +1,10 @@
-# starting point of every dockerfile, base image
-# pinned to linux/amd64: the Hailo Dataflow Compiler wheel is x86_64-only,
-# so this must be forced on arm64 hosts (e.g. Apple Silicon)
+# setting up x86_64
 FROM --platform=linux/amd64 ubuntu:22.04
 
 # prevent interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
+
+ENV USER=root
 
 # install dependencies and Python
 RUN apt-get update && apt-get install -y \
@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y \
     graphviz \
     libgraphviz-dev \
     locales \
+    libgl1 \
+    libglib2.0-0 \
     && locale-gen en_US.UTF-8
 
 # Hailo's CLI assumes a UTF-8 locale; unset locale on a bare Ubuntu image
@@ -28,18 +30,14 @@ WORKDIR /app
 
 # copy the hailo dataflow compiler wheel into the image
 COPY hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl .
+COPY hailo_model_zoo-2.19.0-py3-none-any.whl .
 
-# Hailo's SDK locates its bundled native tools (hailo_tools/build/compiler)
-# by checking whether it was installed into a directory literally named
-# "site-packages". Ubuntu/Debian's system Python renames this to
-# "dist-packages", which breaks that detection and makes the compiler step
-# fail with a confusing "expected str, bytes or os.PathLike, not NoneType"
-# error. A venv always uses standard "site-packages" naming, so install there.
 RUN python3 -m venv /opt/hailo_venv
 ENV PATH="/opt/hailo_venv/bin:$PATH"
 
 # instal the hailo dataflow compiler
 RUN pip install hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl
+RUN pip install hailo_model_zoo-2.19.0-py3-none-any.whl
 
 # set up standard environment variables
 ENV PYTHONPATH=$PYTHONPATH:/app
