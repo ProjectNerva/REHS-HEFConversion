@@ -28,6 +28,7 @@ WORKDIR /app
 
 # copy the hailo dataflow compiler wheel into the image
 COPY hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl .
+COPY requirements.txt .
 
 # Hailo's SDK locates its bundled native tools (hailo_tools/build/compiler)
 # by checking whether it was installed into a directory literally named
@@ -40,6 +41,7 @@ ENV PATH="/opt/hailo_venv/bin:$PATH"
 
 # instal the hailo dataflow compiler
 RUN pip install hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl
+RUN pip install -r requirements.txt
 
 # set up standard environment variables
 ENV PYTHONPATH=$PYTHONPATH:/app
