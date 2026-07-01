@@ -1,0 +1,6 @@
+# Normalize input from [0, 255] to [0, 1] to match training preprocessing.
+# Calibration data must be in [0, 255] range to align with this on-chip normalization.
+normalization1 = normalization([0.0, 0.0, 0.0], [255.0, 255.0, 255.0])
+
+# Maximize compiler optimization during quantization
+performance_param(compiler_optimization_level=max)
