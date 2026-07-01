@@ -53,3 +53,36 @@ This will:
 
 The output `<model_name>.hef` file is ready for deployment on Hailo-8 hardware.
 
+### 6. Running Inference using the HEF File
+
+Run this on the target device (e.g. Raspberry Pi with Hailo AI HAT) with HailoRT installed — **not** inside the build container.
+
+```
+python hef_infer.py <model.hef> <image>
+```
+
+Post-processing (YOLO decode + NMS) runs on the host CPU. The script auto-detects the detection head layout from the output tensor shapes, so no extra configuration is needed for standard YOLO models.
+
+Optional arguments:
+| Argument | Default | Description |
+|---|---|---|
+| `--score-thr` | `0.25` | Confidence threshold |
+| `--iou-thr` | `0.45` | NMS IoU threshold |
+| `--max-det` | `300` | Max detections after NMS |
+| `--labels` | — | Path to a class names file (one name per line) |
+| `--out` | — | Path to save an annotated output image |
+| `--reg-max` | auto | Override DFL reg_max (default: 16 for YOLO11/v8, 1 for DFL-free models) |
+| `--num-classes` | auto | Override class count if auto-detection is ambiguous |
+
+Example with all options:
+```
+python hef_infer.py model.hef photo.jpg --score-thr 0.3 --labels classes.txt --out result.jpg
+```
+
+Detections are printed to stdout in the format:
+```
+3 detections:
+          person  0.872  [120, 45, 380, 510]
+             dog  0.761  [200, 300, 450, 600]
+             cat  0.643  [10, 20, 150, 200]
+```
