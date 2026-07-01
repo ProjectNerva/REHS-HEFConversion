@@ -6,7 +6,7 @@ Convert an Ultralytics YOLO model (.pt) into a Hailo `.hef` file for deployment 
 - Docker needs to be downloaded + an account is needed. On macOS, enable **"Use Rosetta for x86_64/amd64 emulation on Apple Silicon"** in Docker Desktop settings.
 - The Hailo Dataflow Compiler wheel is required. This repo targets Python 3.10. Download from the Hailo Developer Zone: select **AI Software Suite → Dataflow Compiler → x86 → Linux → 3.10**, filter by **Archive**, and download version **3.33.1**. Place the `.whl` file in the root of this repo.
 - The `.pt` model file you want to convert.
-- A folder of representative calibration images (100–1000 real samples from your dataset).
+- A folder of representative calibration images (>1024 real samples from your dataset).
 
 ## General Workflow
 
