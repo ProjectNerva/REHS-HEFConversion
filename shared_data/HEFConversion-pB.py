@@ -79,7 +79,7 @@ nms_config = {
     "anchors": {
         "strides": [8, 16, 32],
         "sizes": [[1, 1], [1, 1], [1, 1]],
-        "scale_factors": [0.5, 0.5],
+        "scale_factors": [1, 1],
     },
     "nms_iou_thresh": 0.45,
     "score_threshold": 0.25,

@@ -53,9 +53,8 @@ class HailoModel:
         ).InferVStreams
 
     def infer(self, image_nhwc_uint8):
-        """Run inference. Returns (max_detections, 6) float32 array from HailoRT NMS.
-        Each row: [y_min, x_min, y_max, x_max, score, class_id] in network-input pixels.
-        Rows with score == 0 are padding and should be filtered out.
+        """Run inference. Returns (N, 6) float32 array: [y_min, x_min, y_max, x_max, score, class_id].
+        Only real detections are included — no padding rows.
         """
         with self._network_group.activate(self._ng_params):
             with self._InferVStreams(
@@ -63,10 +62,26 @@ class HailoModel:
             ) as pipeline:
                 results = pipeline.infer({self._input_name: image_nhwc_uint8})
 
-        # NMS-baked HEF has a single output vstream; drop the batch dimension.
         raw = next(iter(results.values()))
-        detections = raw[0] if raw.ndim == 3 else raw  # (max_det, 6) or already 2D
-        return detections
+
+        # HailoRT NMS output: list[batch] → list[class] → ndarray(N_cls, 5)
+        # Each detection row: [y_min, x_min, y_max, x_max, score]
+        if isinstance(raw, list):
+            per_class = raw[0]  # first (only) batch item
+            rows = []
+            for cls_id, cls_dets in enumerate(per_class):
+                if cls_dets is None or len(cls_dets) == 0:
+                    continue
+                cls_dets = np.asarray(cls_dets, dtype=np.float32)
+                if cls_dets.ndim == 1:
+                    cls_dets = cls_dets[None, :]
+                class_col = np.full((len(cls_dets), 1), cls_id, dtype=np.float32)
+                rows.append(np.concatenate([cls_dets, class_col], axis=1))
+            return np.concatenate(rows, axis=0) if rows else np.zeros((0, 6), dtype=np.float32)
+
+        # Fallback: flat tensor output (batch, max_det, 6)
+        raw = np.asarray(raw)
+        return raw[0] if raw.ndim == 3 else raw
 
 
 def load_labels(path):
@@ -113,8 +128,8 @@ def main():
 
     for det in valid:
         y1, x1, y2, x2, score, cls_id = det
-        # Un-letterbox: content was pasted top-left with scale ratio
-        x1, y1, x2, y2 = x1 / ratio, y1 / ratio, x2 / ratio, y2 / ratio
+        # Coords are normalized [0,1] → scale to network input pixels → un-letterbox
+        x1, y1, x2, y2 = (x1 * model.input_w) / ratio, (y1 * model.input_h) / ratio, (x2 * model.input_w) / ratio, (y2 * model.input_h) / ratio
         x1, x2 = max(0.0, min(float(x1), ow)), max(0.0, min(float(x2), ow))
         y1, y2 = max(0.0, min(float(y1), oh)), max(0.0, min(float(y2), oh))
         cls_id = int(cls_id)
