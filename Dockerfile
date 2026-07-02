@@ -46,16 +46,15 @@ COPY requirements.txt .
 RUN python3 -m venv /opt/hailo_venv
 ENV PATH="/opt/hailo_venv/bin:$PATH"
 
-# Install the Hailo DFC — this pulls in CPU-only torch as a transitive dependency.
+# Install the Hailo DFC (does not depend on torch).
 RUN pip install hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl
 
-# Detect the exact torch version DFC installed, then swap in the matching CUDA
-# build from PyTorch's cu121 index. --no-deps replaces only the torch wheel
-# itself without re-resolving any of DFC's other pinned dependencies.
-RUN TORCH_VER=$(python3 -c "import torch; print(torch.__version__.split('+')[0])") && \
-    echo "Replacing CPU torch ${TORCH_VER} with CUDA build (cu121)..." && \
-    pip install --no-deps \
-        "torch==${TORCH_VER}+cu121" \
+# Install a CUDA (cu121) build of torch BEFORE the rest of the requirements.
+# cu121 wheels are only published up to 2.5.1, and this build runs fine on the
+# CUDA 12.1 base image. Installing it first means ultralytics (in requirements)
+# sees torch already satisfied and won't pull the CPU-only wheel over it.
+RUN pip install \
+        torch==2.5.1 torchvision==0.20.1 \
         --index-url https://download.pytorch.org/whl/cu121
 
 RUN pip install -r requirements.txt

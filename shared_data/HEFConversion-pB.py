@@ -71,9 +71,24 @@ num_classes = cv3_ch
 regression_length = cv2_ch // 4
 print(f"Auto-detected: num_classes={num_classes}, regression_length={regression_length} ({'DFL-free' if regression_length == 1 else 'DFL'})")
 
-# Write the NMS config JSON so model_optimization_nms.alls can reference it.
+# Detect the square input resolution (H, W) from the ONNX input tensor (NCHW).
+# Falls back to 640 for dynamic/unspecified dims.
+input_dims = [d.dim_value for d in onnx_model.graph.input[0].type.tensor_type.shape.dim]
+img_h = input_dims[2] if len(input_dims) >= 4 and input_dims[2] > 0 else 640
+img_w = input_dims[3] if len(input_dims) >= 4 and input_dims[3] > 0 else 640
+
+# Generate the NMS config JSON that model_optimization_nms.alls references.
+# This mirrors Hailo's own default_nms_config_yolov8.json schema — only classes,
+# regression_length and image_dims are swapped for the auto-detected values.
+# reg_layer/cls_layer are left empty on purpose: DFC infers the real layer names
+# from the translated HAR. Keeping this schema-correct (vs. hand-invented keys) is
+# what avoids the KeyError('bbox_decoders') / KeyError('regression_length') failures.
 # Thresholds are baked into the HEF at compile time and cannot be changed at runtime.
 nms_config = {
+    "nms_scores_th": 0.25,
+    "nms_iou_th": 0.45,
+    "image_dims": [img_h, img_w],
+    "max_proposals_per_class": 100,
     "classes": num_classes,
     "regression_length": regression_length,
     "anchors": {
@@ -85,10 +100,17 @@ nms_config = {
     "score_threshold": 0.25,
     "nms_max_output_per_class": 300,
     "post_nms_topk": 300,
+    "background_removal": False,
+    "background_removal_index": 0,
+    "bbox_decoders": [
+        {"name": "bbox_decoder_8", "stride": 8, "reg_layer": "", "cls_layer": ""},
+        {"name": "bbox_decoder_16", "stride": 16, "reg_layer": "", "cls_layer": ""},
+        {"name": "bbox_decoder_32", "stride": 32, "reg_layer": "", "cls_layer": ""},
+    ],
 }
 with open("yolo_nms_config.json", "w") as f:
     json.dump(nms_config, f, indent=2)
-print("NMS config written to yolo_nms_config.json")
+print(f"NMS config written to yolo_nms_config.json (image_dims={[img_h, img_w]})")
 
 # hw_arch is fixed here (not at compile time) and carries through the saved HAR files.
 # Options: 'hailo8', 'hailo8l', 'hailo15', 'hailo15l'
@@ -110,6 +132,9 @@ runner = ClientRunner(har=f"{model_name}_fp32.har")
 
 # model_optimization_nms.alls is identical to model_optimization.alls but adds
 # nms_postprocess(), which appends Hailo's NMS engine as a layer inside the HEF.
+# It references yolo_nms_config.json (generated above with the auto-detected
+# classes / regression_length / image_dims), so the same .alls works unchanged
+# for any custom-trained model.
 runner.load_model_script("model_optimization_nms.alls")
 
 # Run full quantization algorithm using real data to minimize math accuracy loss
