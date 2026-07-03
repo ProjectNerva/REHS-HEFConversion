@@ -137,13 +137,8 @@ runner = ClientRunner(har=f"{model_name}_fp32.har")
 # for any custom-trained model.
 runner.load_model_script("model_optimization_nms.alls")
 
-def calibration_feed():
-    raw_data = calibration_data
-    for sample in raw_data:
-        yield {start_node_names[0]: np.expand_dims(sample, axis=0) if sample.ndim == 3 else sample}
-
 # Run full quantization algorithm using real data to minimize math accuracy loss
-runner.optimize(calibration_feed())
+runner.optimize(calibration_data)
 
 # Save the quantized model archive
 quantized_har_path = f"{model_name}_quantized.har"
