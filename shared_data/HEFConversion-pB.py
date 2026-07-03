@@ -94,7 +94,7 @@ nms_config = {
     "anchors": {
         "strides": [8, 16, 32],
         "sizes": [[1, 1], [1, 1], [1, 1]],
-        "scale_factors": [1, 1],
+        "scale_factors": [1.0, 1.0],
     },
     "nms_iou_thresh": 0.45,
     "score_threshold": 0.25,
@@ -137,8 +137,13 @@ runner = ClientRunner(har=f"{model_name}_fp32.har")
 # for any custom-trained model.
 runner.load_model_script("model_optimization_nms.alls")
 
+def calibration_feed():
+    raw_data = calibration_npy
+    for sample in raw_data:
+        yield {start_node_names[0]: np.expand_dims(sample, axis=0) if sample.ndim == 3 else sample}
+
 # Run full quantization algorithm using real data to minimize math accuracy loss
-runner.optimize(calibration_data)
+runner.optimize(calibration_feed())
 
 # Save the quantized model archive
 quantized_har_path = f"{model_name}_quantized.har"

@@ -60,7 +60,7 @@ runner.load_model_script("model_optimization.alls")
 # lazy loading gen to prevent 16 GB crash
 # feeds one by one instead of all at once
 def calibration_feed():
-    raw_data = np.load(calibration_data)
+    raw_data = calibration_data
     for sample in raw_data:
         yield {start_node_names[0]: np.expand_dims(sample, axis = 0) if sample.ndim == 3 else sample}
 
