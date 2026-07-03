@@ -1,6 +1,17 @@
 # REHS-HEFConversion
 
-Convert an Ultralytics YOLO model (.pt) into a Hailo `.hef` file for deployment on Hailo-8 accelerators. The pipeline handles ONNX export, graph simplification, calibration dataset preparation, quantization, and hardware compilation.
+Convert an Ultralytics YOLO model (.pt) into a Hailo `.hef` file for deployment on Hailo-8 accelerators. Two pipelines are provided:
+
+| | Pipeline A | Pipeline B |
+|---|---|---|
+| **Script** | `HEFConversion-pA.py` | `HEFConversion-pB.py` |
+| **Output** | Raw tensor HEF | NMS-baked HEF |
+| **Inference script** | `hef_infer.py` | `hef_infer_nms.py` |
+| **Post-processing** | Full decode + NMS on host CPU | None — HailoRT handles it |
+| **Threshold changes** | Edit flags at runtime | Requires HEF recompile |
+
+**Choose Pipeline A** if you want runtime-configurable confidence/IoU thresholds or need to debug raw detections.  
+**Choose Pipeline B** if you want the simplest possible inference code and fixed thresholds are acceptable.
 
 ## Prerequisites
 - Docker needs to be downloaded + an account is needed. On macOS, enable **"Use Rosetta for x86_64/amd64 emulation on Apple Silicon"** in Docker Desktop settings.
@@ -27,7 +38,9 @@ If you have an NVIDIA GPU on a Linux host, you can pass it through to the contai
    sudo systemctl restart docker
    ```
 
-## General Workflow
+---
+
+## Common Steps (both pipelines)
 
 ### 1. Build the Docker image
 ```
@@ -35,7 +48,7 @@ docker build -t hef-conversion .
 ```
 
 ### 2. Export and simplify the ONNX model
-Run locally. This converts the YOLO `.pt` to ONNX, simplifies the graph, and lowers the IR version if needed.
+Run locally. Converts the YOLO `.pt` to ONNX, simplifies the graph, and lowers the IR version if needed.
 ```
 python main.py <model.pt>
 ```
@@ -60,34 +73,37 @@ docker run -it -v "$(pwd)/shared_data:/app/shared_data" hef-conversion
 docker run -it --gpus all -v "$(pwd)/shared_data:/app/shared_data" hef-conversion
 ```
 
-If you want to restart an older container you left
+To restart an existing container:
 ```
 docker start -ai <container_id>
 ```
 
-### 5. Run the HEF conversion inside the container
+---
+
+## Pipeline A — Raw Tensor HEF
+
+The model is compiled to output raw Conv tensors. All post-processing (DFL decode, sigmoid, greedy NMS, coordinate un-scaling) runs host-side in `hef_infer.py`. Confidence and IoU thresholds are configurable at inference time without recompiling.
+
+### 5A. Run the conversion inside the container
 ```
 cd shared_data
-python3 HEFConversion.py <model_name> <model.onnx> <calibration.npy>
+python3 HEFConversion-pA.py <model_name> <model.onnx> <calibration.npy>
 ```
 This will:
-- Parse the ONNX graph into a Hailo Archive (HAR)
-- Apply the model optimization script (`model_optimization.alls`) for on-chip normalization and max compiler optimization
-- Quantize using your real calibration data
-- Run emulation metrics to verify accuracy before compilation
-- Compile to the final `.hef` binary
+- Parse the ONNX graph into a Hailo Archive (HAR), cutting at the 6 raw Conv outputs before the detection head
+- Apply `model_optimization.alls` (on-chip normalization, max compiler optimization)
+- Quantize using your calibration data
+- Compile to `<model_name>.hef`
 
-The output `<model_name>.hef` file is ready for deployment on Hailo-8 hardware.
+### 6A. Run inference (on device)
 
-### 6. Running Inference using the HEF File
-
-Run this on the target device (e.g. Raspberry Pi with Hailo AI HAT) with HailoRT installed — **not** inside the build container.
+Run on the target device (e.g. Raspberry Pi with Hailo AI HAT) — **not** inside the build container.
 
 ```
 python hef_infer.py <model.hef> <image>
 ```
 
-Post-processing (YOLO decode + NMS) runs on the host CPU. The script auto-detects the detection head layout from the output tensor shapes, so no extra configuration is needed for standard YOLO models.
+Post-processing (YOLO decode + NMS) runs on the host CPU. The script auto-detects the detection head layout from output tensor shapes.
 
 Optional arguments:
 | Argument | Default | Description |
@@ -100,15 +116,61 @@ Optional arguments:
 | `--reg-max` | auto | Override DFL reg_max (default: 16 for YOLO11/v8, 1 for DFL-free models) |
 | `--num-classes` | auto | Override class count if auto-detection is ambiguous |
 
-Example with all options:
+Example:
 ```
 python hef_infer.py model.hef photo.jpg --score-thr 0.3 --labels classes.txt --out result.jpg
+```
+
+---
+
+## Pipeline B — NMS-Baked HEF
+
+Hailo's NMS engine is compiled directly into the HEF. HailoRT runs decode and NMS automatically and returns final detections — no post-processing code needed in the inference script. Score and IoU thresholds are baked at compile time; changing them requires recompiling the HEF.
+
+The script auto-detects `num_classes` and `regression_length` from the ONNX graph and selects the correct Hailo NMS decoder:
+- **YOLO26 / YOLOv10** (DFL-free, `regression_length=1`): uses `meta_arch=yolov6`, NMS runs on the Hailo chip
+- **YOLO11 / YOLOv8** (DFL, `regression_length>1`): uses `meta_arch=yolov8`, NMS runs on the deployment CPU via HailoRT
+
+### 5B. Run the conversion inside the container
+```
+cd shared_data
+python3 HEFConversion-pB.py <model_name> <model.onnx> <calibration.npy>
+```
+This will:
+- Parse the ONNX graph (same graph cut as Pipeline A)
+- Auto-detect `num_classes`, `regression_length`, and input resolution from the ONNX
+- Generate `yolo_nms_config.json` with the detected values
+- Render `model_optimization_nms.alls` with the correct `meta_arch` and `engine`
+- Quantize using your calibration data
+- Compile to `<model_name>_nms.hef` with NMS baked in
+
+To change the score or IoU threshold, edit `nms_scores_th` / `nms_iou_th` in `HEFConversion-pB.py` and recompile.
+
+### 6B. Run inference (on device)
+
+Run on the target device — **not** inside the build container.
+
+```
+python hef_infer_nms.py <model_nms.hef> <image>
+```
+
+No host-side decode or NMS is needed. HailoRT returns final bounding boxes directly.
+
+Optional arguments:
+| Argument | Default | Description |
+|---|---|---|
+| `--labels` | — | Path to a class names file (one name per line) |
+| `--out` | — | Path to save an annotated output image |
+
+Example:
+```
+python hef_infer_nms.py model_nms.hef photo.jpg --labels classes.txt --out result.jpg
 ```
 
 Detections are printed to stdout in the format:
 ```
 3 detections:
           person  0.872  [120, 45, 380, 510]
-             dog  0.761  [200, 300, 450, 600]
-             cat  0.643  [10, 20, 150, 200]
+             bus  0.761  [200, 300, 450, 600]
+            bike  0.643  [10, 20, 150, 200]
 ```
