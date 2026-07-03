@@ -138,7 +138,7 @@ runner = ClientRunner(har=f"{model_name}_fp32.har")
 runner.load_model_script("model_optimization_nms.alls")
 
 def calibration_feed():
-    raw_data = calibration_npy
+    raw_data = calibration_data
     for sample in raw_data:
         yield {start_node_names[0]: np.expand_dims(sample, axis=0) if sample.ndim == 3 else sample}
 
