@@ -1,7 +1,7 @@
 # starting point of every dockerfile, base image
 # pinned to linux/amd64: the Hailo Dataflow Compiler wheel is x86_64-only,
 # so this must be forced on arm64 hosts (e.g. Apple Silicon)
-FROM --platform=linux/amd64 ubuntu:22.04
+FROM --platform=linux/amd64 nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 # prevent interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -23,6 +23,13 @@ ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8
 
+# Expose all GPUs automatically when --gpus all is passed at docker run time.
+# These vars are read by nvidia-container-toolkit and have zero effect on hosts
+# without it (macOS, CPU-only Linux).
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    NVIDIA_REQUIRE_CUDA="cuda>=12.1"
+
 # create a working directory
 WORKDIR /app
 
@@ -39,8 +46,17 @@ COPY requirements.txt .
 RUN python3 -m venv /opt/hailo_venv
 ENV PATH="/opt/hailo_venv/bin:$PATH"
 
-# instal the hailo dataflow compiler
+# Install the Hailo DFC (does not depend on torch).
 RUN pip install hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl
+
+# Install a CUDA (cu121) build of torch BEFORE the rest of the requirements.
+# cu121 wheels are only published up to 2.5.1, and this build runs fine on the
+# CUDA 12.1 base image. Installing it first means ultralytics (in requirements)
+# sees torch already satisfied and won't pull the CPU-only wheel over it.
+RUN pip install \
+        torch==2.5.1 torchvision==0.20.1 \
+        --index-url https://download.pytorch.org/whl/cu121
+
 RUN pip install -r requirements.txt
 
 # set up standard environment variables

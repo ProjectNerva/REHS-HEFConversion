@@ -8,6 +8,25 @@ Convert an Ultralytics YOLO model (.pt) into a Hailo `.hef` file for deployment 
 - The `.pt` model file you want to convert.
 - A folder of representative calibration images (>1024 real samples from your dataset).
 
+### NVIDIA GPU Acceleration (Optional, Linux only)
+
+If you have an NVIDIA GPU on a Linux host, you can pass it through to the container. macOS Docker Desktop cannot pass NVIDIA GPUs through to containers — CPU-only mode is used automatically there.
+
+1. Make sure you have the latest NVIDIA drivers installed on your host system.
+2. Install the NVIDIA Container Toolkit using your package manager:
+   ```
+   # Ubuntu / Debian
+   sudo apt-get install -y nvidia-container-toolkit
+
+   # RHEL / CentOS / Fedora
+   sudo yum install -y nvidia-container-toolkit
+   ```
+3. Configure the Docker runtime and restart Docker:
+   ```
+   sudo nvidia-ctk runtime configure --runtime=docker
+   sudo systemctl restart docker
+   ```
+
 ## General Workflow
 
 ### 1. Build the Docker image
@@ -30,8 +49,15 @@ python build_calib_set.py <input_image_dir> <output.npy> <height> <width>
 Move the output `.npy` file into `shared_data/`.
 
 ### 4. Run the Docker container
+
+**CPU-only (macOS, or Linux without a GPU):**
 ```
 docker run -it -v "$(pwd)/shared_data:/app/shared_data" hef-conversion
+```
+
+**With NVIDIA GPU (Linux + NVIDIA Container Toolkit required):**
+```
+docker run -it --gpus all -v "$(pwd)/shared_data:/app/shared_data" hef-conversion
 ```
 
 If you want to restart an older container you left

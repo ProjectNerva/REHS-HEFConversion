@@ -1,0 +1,26 @@
+# Normalize input from [0, 255] to [0, 1] to match training preprocessing.
+# Calibration data must be in [0, 255] range to align with this on-chip normalization.
+normalization1 = normalization([0.0, 0.0, 0.0], [255.0, 255.0, 255.0])
+
+# Maximize compiler optimization during quantization
+performance_param(compiler_optimization_level=max)
+
+# Hailo defaults calibset_size to 64 regardless of how many samples are passed
+# to runner.optimize(); raise it to use the full 1024-image calibration set.
+# batch_size is lowered from Hailo's default of 8 to cap peak memory per batch
+# during CPU-fallback statistics collection, since 64 entries alone already OOM'd.
+model_optimization_config(calibration, calibset_size=1024, batch_size=4)
+
+# Append Hailo's NMS engine as a post-process layer.
+# __META_ARCH__ is a placeholder: HEFConversion-pB.py renders it from the detected
+# head type — yolov6 (direct distance decode) for DFL-free heads like YOLO26
+# (regression_length=1), or yolov8 (DFL decode) for YOLOv8/YOLO11 (regression_length=16).
+# Using yolov8's DFL decode on a DFL-free head collapses every box to a zero-size
+# point (softmax over 1 bin has expectation 0), so the meta_arch MUST match the head.
+# classes / regression_length live in the config JSON (yolo_nms_config.json), also
+# generated per-model. bbox_decoders leave reg_layer/cls_layer empty; DFC auto-detects
+# the real layer names from the translated HAR.
+# engine is coupled to meta_arch and also rendered by the script: yolov6 supports
+# nn_core only (NMS on the Hailo chip), yolov8 supports cpu only (NMS on the host,
+# managed by HailoRT). Either way the application does not implement NMS itself.
+nms_postprocess("yolo_nms_config.json", meta_arch=__META_ARCH__, engine=__ENGINE__)
