@@ -12,12 +12,15 @@ performance_param(compiler_optimization_level=max)
 model_optimization_config(calibration, calibset_size=1024, batch_size=4)
 
 # Append Hailo's NMS engine as a post-process layer.
-# meta_arch=yolov8 is Hailo's anchor-free decoder template. classes and
-# regression_length are NOT valid command kwargs — they live in the config JSON,
-# which HEFConversion-pB.py generates (yolo_nms_config.json) with the auto-detected
-# values so this same command works for any custom-trained model. The config's
-# bbox_decoders leave reg_layer/cls_layer empty; DFC auto-detects the actual layer
-# names from the translated HAR.
-# engine=cpu: NMS runs on the deployment device CPU, managed by HailoRT —
-# the application does not implement NMS.
-nms_postprocess("yolo_nms_config.json", meta_arch=yolov8, engine=cpu)
+# __META_ARCH__ is a placeholder: HEFConversion-pB.py renders it from the detected
+# head type — yolov6 (direct distance decode) for DFL-free heads like YOLO26
+# (regression_length=1), or yolov8 (DFL decode) for YOLOv8/YOLO11 (regression_length=16).
+# Using yolov8's DFL decode on a DFL-free head collapses every box to a zero-size
+# point (softmax over 1 bin has expectation 0), so the meta_arch MUST match the head.
+# classes / regression_length live in the config JSON (yolo_nms_config.json), also
+# generated per-model. bbox_decoders leave reg_layer/cls_layer empty; DFC auto-detects
+# the real layer names from the translated HAR.
+# engine is coupled to meta_arch and also rendered by the script: yolov6 supports
+# nn_core only (NMS on the Hailo chip), yolov8 supports cpu only (NMS on the host,
+# managed by HailoRT). Either way the application does not implement NMS itself.
+nms_postprocess("yolo_nms_config.json", meta_arch=__META_ARCH__, engine=__ENGINE__)

@@ -77,40 +77,49 @@ input_dims = [d.dim_value for d in onnx_model.graph.input[0].type.tensor_type.sh
 img_h = input_dims[2] if len(input_dims) >= 4 and input_dims[2] > 0 else 640
 img_w = input_dims[3] if len(input_dims) >= 4 and input_dims[3] > 0 else 640
 
-# Generate the NMS config JSON that model_optimization_nms.alls references.
-# This mirrors Hailo's own default_nms_config_yolov8.json schema — only classes,
-# regression_length and image_dims are swapped for the auto-detected values.
-# reg_layer/cls_layer are left empty on purpose: DFC infers the real layer names
-# from the translated HAR. Keeping this schema-correct (vs. hand-invented keys) is
-# what avoids the KeyError('bbox_decoders') / KeyError('regression_length') failures.
-# Thresholds are baked into the HEF at compile time and cannot be changed at runtime.
+# Pick Hailo's decoder template from the detected head type. This is critical:
+# yolov8's decoder applies DFL (softmax-expectation over regression_length bins).
+# On a DFL-free head (regression_length=1) that expectation is over a single bin,
+# which is identically 0 — so every box collapses to a zero-size point at its cell
+# center. YOLO26 / YOLOv10 are DFL-free and must use yolov6 (direct distance decode);
+# YOLOv8 / YOLO11 are DFL and must use yolov8. Mirrors Hailo's default_nms_config_*.json.
+# engine is coupled to meta_arch: Hailo runs yolov6 NMS on the neural core only
+# (nn_core) and yolov8 NMS on the host only (cpu). Picking the wrong one raises
+# UnsupportedMetaArchError ("cannot be run on host" / "on chip").
+if regression_length == 1:
+    meta_arch = "yolov6"          # direct l,t,r,b distance decode (no DFL)
+    decoder_prefix = "fused_bbox_decoder"
+    engine = "nn_core"            # yolov6 NMS runs on the Hailo chip
+else:
+    meta_arch = "yolov8"          # DFL decode over regression_length bins
+    decoder_prefix = "bbox_decoder"
+    engine = "cpu"                # yolov8 NMS runs on the deployment host CPU
+print(f"Selected meta_arch={meta_arch}, engine={engine} for regression_length={regression_length}")
+
+# Generate the NMS config JSON that model_optimization_nms.alls references, matching
+# the chosen meta_arch's schema. reg_layer/cls_layer are left empty on purpose: DFC
+# infers the real layer names from the translated HAR. Thresholds are baked into the
+# HEF at compile time and cannot be changed at runtime.
 nms_config = {
     "nms_scores_th": 0.25,
     "nms_iou_th": 0.45,
     "image_dims": [img_h, img_w],
     "max_proposals_per_class": 100,
     "classes": num_classes,
-    "regression_length": regression_length,
-    "anchors": {
-        "strides": [8, 16, 32],
-        "sizes": [[1, 1], [1, 1], [1, 1]],
-        "scale_factors": [1.0, 1.0],
-    },
-    "nms_iou_thresh": 0.45,
-    "score_threshold": 0.25,
-    "nms_max_output_per_class": 300,
-    "post_nms_topk": 300,
-    "background_removal": False,
-    "background_removal_index": 0,
     "bbox_decoders": [
-        {"name": "bbox_decoder_8", "stride": 8, "reg_layer": "", "cls_layer": ""},
-        {"name": "bbox_decoder_16", "stride": 16, "reg_layer": "", "cls_layer": ""},
-        {"name": "bbox_decoder_32", "stride": 32, "reg_layer": "", "cls_layer": ""},
+        {"name": f"{decoder_prefix}_{s}", "stride": s, "reg_layer": "", "cls_layer": ""}
+        for s in (8, 16, 32)
     ],
 }
+# regression_length only belongs in the yolov8 (DFL) schema; the yolov6 default config
+# has no such field. Including it under yolov6 would be meaningless (and reg_len=1 is
+# the whole reason we're on yolov6).
+if meta_arch == "yolov8":
+    nms_config["regression_length"] = regression_length
+
 with open("yolo_nms_config.json", "w") as f:
     json.dump(nms_config, f, indent=2)
-print(f"NMS config written to yolo_nms_config.json (image_dims={[img_h, img_w]})")
+print(f"NMS config written to yolo_nms_config.json (meta_arch={meta_arch}, image_dims={[img_h, img_w]})")
 
 # hw_arch is fixed here (not at compile time) and carries through the saved HAR files.
 # Options: 'hailo8', 'hailo8l', 'hailo15', 'hailo15l'
@@ -130,12 +139,17 @@ print("Parsing complete. HAR saved.")
 # Load the previously saved HAR archive
 runner = ClientRunner(har=f"{model_name}_fp32.har")
 
-# model_optimization_nms.alls is identical to model_optimization.alls but adds
-# nms_postprocess(), which appends Hailo's NMS engine as a layer inside the HEF.
-# It references yolo_nms_config.json (generated above with the auto-detected
-# classes / regression_length / image_dims), so the same .alls works unchanged
-# for any custom-trained model.
-runner.load_model_script("model_optimization_nms.alls")
+# model_optimization_nms.alls is a template: it adds nms_postprocess() but leaves
+# meta_arch as __META_ARCH__. Render it with the meta_arch selected above (meta_arch
+# IS a valid nms_postprocess kwarg, unlike classes/regression_length which live in
+# the config JSON). Write the rendered result to a sibling file and load it by path.
+with open("model_optimization_nms.alls") as f:
+    model_script = f.read()
+model_script = model_script.replace("__META_ARCH__", meta_arch).replace("__ENGINE__", engine)
+rendered_alls_path = "model_optimization_nms.rendered.alls"
+with open(rendered_alls_path, "w") as f:
+    f.write(model_script)
+runner.load_model_script(rendered_alls_path)
 
 # Run full quantization algorithm using real data to minimize math accuracy loss
 runner.optimize(calibration_data)
