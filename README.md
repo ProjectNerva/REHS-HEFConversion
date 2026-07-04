@@ -40,6 +40,37 @@ If you have an NVIDIA GPU on a Linux host, you can pass it through to the contai
 
 ---
 
+## Quick Start — Automated Pipeline
+
+`automation.sh` runs all steps end-to-end with a single command. It exports the ONNX, builds the calibration dataset, starts the Docker container, runs the conversion, and exits the container automatically.
+
+```
+bash automation.sh <model.pt> <calib_image_dir> [options]
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--pipeline A\|B` | `A` | Pipeline A (raw HEF) or B (NMS-baked HEF) |
+| `--height H` | `416` | Model input height |
+| `--width W` | `608` | Model input width |
+| `--gpu` | off | Pass `--gpus all` to Docker (Linux + NVIDIA only) |
+
+Examples:
+```
+# Pipeline A, default resolution
+bash automation.sh yolo26n.pt images/
+
+# Pipeline B with GPU
+bash automation.sh yolo26n.pt images/ --pipeline B --gpu
+
+# Custom resolution
+bash automation.sh yolo11n.pt images/ --height 640 --width 640
+```
+
+The output `.hef` file will be in `shared_data/` when finished. To run steps manually instead, follow the sections below.
+
+---
+
 ## Common Steps (both pipelines)
 
 ### 1. Build the Docker image
@@ -120,8 +151,6 @@ Example:
 ```
 python hef_infer.py model.hef photo.jpg --score-thr 0.3 --labels classes.txt --out result.jpg
 ```
-
----
 
 ## Pipeline B — NMS-Baked HEF
 
