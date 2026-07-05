@@ -48,12 +48,32 @@ If you have an NVIDIA GPU on a Linux host, you can pass it through to the contai
 bash automation.sh <model.pt> <calib_image_dir> [options]
 ```
 
+The first argument may be an Ultralytics `.pt` (exported to ONNX for you) **or a `.onnx` file you bring yourself** — bringing your own ONNX is how to convert non-YOLO models today, since it skips the YOLO-specific export step.
+
 | Option | Default | Description |
 |---|---|---|
+| `--config FILE` | — | Model profile (YAML): input dims, `hw_arch`, start/end nodes. See [Model profiles](#model-profiles) |
 | `--pipeline A\|B` | `A` | Pipeline A (raw HEF) or B (NMS-baked HEF) |
-| `--height H` | `416` | Model input height |
-| `--width W` | `608` | Model input width |
+| `--height H` | `416` | Model input height (overrides the profile) |
+| `--width W` | `608` | Model input width (overrides the profile) |
 | `--gpu` | off | Pass `--gpus all` to Docker (Linux + NVIDIA only) |
+
+Value precedence for pipeline/height/width is: **CLI flag > `--config` > built-in default**.
+
+### Model profiles
+
+Everything model-specific lives in a YAML profile (see `yaml-config/yolo26n.yaml`). Copy it per model. Without `--config`, the pipeline keeps the original YOLO26 defaults, so the flag is optional and backward compatible.
+
+```yaml
+input:   { channels: 3, height: 416, width: 608 }
+hailo:   { hw_arch: hailo8 }          # hailo8 | hailo8l | hailo15 | hailo15l
+parse:
+  start_nodes: auto                    # or an explicit list
+  end_nodes: [ ... ]                   # graph cut; "auto" = ONNX graph outputs
+pipeline: A
+```
+
+The profile is staged into `shared_data/` and read by the in-container conversion script for `hw_arch` and the start/end graph cut. **Requires `pyyaml` in the image — rebuild once (`docker build -t hef-conversion .`) after pulling these changes.**
 
 Examples:
 ```

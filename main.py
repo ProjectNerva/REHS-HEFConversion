@@ -5,9 +5,14 @@ from onnxsim import simplify
 
 yolo_model = sys.argv[1]
 
+# Optional height/width so the export resolution matches the model profile.
+# Defaults preserve the original 416x608 behaviour when called with no dims.
+height = int(sys.argv[2]) if len(sys.argv) > 2 else 416
+width = int(sys.argv[3]) if len(sys.argv) > 3 else 608
+
 model = YOLO(yolo_model)
 
-onnx_path = model.export(format="onnx", imgsz=(416, 608), dynamic=False, nms=False)
+onnx_path = model.export(format="onnx", imgsz=(height, width), dynamic=False, nms=False)
 
 # Simplify the exported ONNX graph before handing it to the Hailo compiler
 print("Simplifying ONNX graph...")

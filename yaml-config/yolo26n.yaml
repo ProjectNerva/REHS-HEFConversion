@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Model profile for the HEF conversion pipeline.
+#
+# This file holds everything that is SPECIFIC to one model. The rest of the
+# pipeline (ONNX parse -> quantize -> compile) is model-agnostic and reads its
+# per-model knobs from here. Copy this file per model and pass it with:
+#
+#     bash automation.sh <model.pt|.onnx> <calib_dir> --config model_config.yaml
+#
+# Running WITHOUT --config keeps the original YOLO26 behaviour (hardcoded
+# defaults + node fallback), so this file is optional.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Human-readable name. Currently informational only.
+name: yolo26n
+
+input:
+  channels: 3        # 3 = RGB, 1 = grayscale. Must match the ONNX input tensor.
+  height: 416        # Export + calibration resolution (letterbox target).
+  width: 608
+
+hailo:
+  # Target accelerator. Fixed at parse time and carried through the HAR files.
+  # Options: hailo8, hailo8l, hailo15, hailo15l
+  hw_arch: hailo8
+
+parse:
+  # start_nodes: "auto" derives the graph inputs from the ONNX. Override with an
+  # explicit list only if you need to cut the front of the graph.
+  start_nodes: auto
+
+  # end_nodes: where to cut the graph before compiling. "auto" uses the ONNX
+  # graph outputs. Give an explicit list when the model's tail contains ops the
+  # Hailo compiler can't place on-chip (and must run host-side instead).
+  #
+  # For YOLO26: cut at the 6 raw box/class Conv outputs. Its NMS-free head bakes
+  # a TopK/GatherElements block that Hailo can't compile, so we end before it.
+  end_nodes:
+    - "/model.23/one2one_cv2.0/one2one_cv2.0.2/Conv"   # scale 0 - box regression
+    - "/model.23/one2one_cv3.0/one2one_cv3.0.2/Conv"   # scale 0 - class scores
+    - "/model.23/one2one_cv2.1/one2one_cv2.1.2/Conv"   # scale 1 - box regression
+    - "/model.23/one2one_cv3.1/one2one_cv3.1.2/Conv"   # scale 1 - class scores
+    - "/model.23/one2one_cv2.2/one2one_cv2.2.2/Conv"   # scale 2 - box regression
+    - "/model.23/one2one_cv3.2/one2one_cv3.2.2/Conv"   # scale 2 - class scores
+
+# Default pipeline when --pipeline is not passed on the CLI.
+# A = raw tensor HEF (host-side post-process). B = NMS-baked HEF (YOLO only).
+pipeline: A

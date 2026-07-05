@@ -33,9 +33,10 @@ ENV NVIDIA_VISIBLE_DEVICES=all \
 # create a working directory
 WORKDIR /app
 
-# copy the hailo dataflow compiler wheel into the image
+# copy the hailo dataflow compiler wheel into the image.
+# requirements.txt is intentionally copied later (just before its install) so
+# that edits to it don't invalidate the expensive torch/hailo layers below.
 COPY hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl .
-COPY requirements.txt .
 
 # Hailo's SDK locates its bundled native tools (hailo_tools/build/compiler)
 # by checking whether it was installed into a directory literally named
@@ -57,6 +58,8 @@ RUN pip install \
         torch==2.5.1 torchvision==0.20.1 \
         --index-url https://download.pytorch.org/whl/cu121
 
+# Copied here (after torch/hailo) so requirements edits rebuild only this layer.
+COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 # set up standard environment variables

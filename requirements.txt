@@ -3,3 +3,4 @@ pillow
 onnx
 onnxsim
 ultralytics
+pyyaml

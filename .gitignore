@@ -222,6 +222,7 @@ __marimo__/
 *.har
 *.hef
 *.whl
+*.pth
 
 shared_data/*
 !shared_data/*.py
