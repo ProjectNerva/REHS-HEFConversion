@@ -11,6 +11,8 @@ performance_param(compiler_optimization_level=max)
 # during CPU-fallback statistics collection, since 64 entries alone already OOM'd.
 model_optimization_config(calibration, calibset_size=1024, batch_size=4)
 
+model_optimization_flavor(optimization_level=3)
+
 # Append Hailo's NMS engine as a post-process layer.
 # __META_ARCH__ is a placeholder: HEFConversion-pB.py renders it from the detected
 # head type — yolov6 (direct distance decode) for DFL-free heads like YOLO26

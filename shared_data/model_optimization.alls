@@ -3,10 +3,12 @@
 normalization1 = normalization([0.0, 0.0, 0.0], [255.0, 255.0, 255.0])
 
 # Maximize compiler optimization during quantization
-performance_param(compiler_optimization_level=max)
+performance_param(compiler_optimization_level=max)\
 
 # Hailo defaults calibset_size to 64 regardless of how many samples are passed
 # to runner.optimize(); raise it to use the full 1024-image calibration set.
 # batch_size is lowered from Hailo's default of 8 to cap peak memory per batch
 # during CPU-fallback statistics collection, since 64 entries alone already OOM'd.
 model_optimization_config(calibration, calibset_size=1024, batch_size=4)
+
+model_optimization_flavor(optimization_level=3)
