@@ -228,3 +228,6 @@ shared_data/*
 !shared_data/*.alls
 image_outputs/
 COCO/
+
+# VSCode workspace file
+*.code-workspace
